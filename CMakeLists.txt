@@ -46,4 +46,23 @@ set(CPACK_INSTALL_CMAKE_PROJECTS "${CPACK_INSTALL_CMAKE_PROJECTS};${tetgen_DIR};
 set(CPACK_INSTALL_CMAKE_PROJECTS "${CPACK_INSTALL_CMAKE_PROJECTS};${cleaver_DIR};CLEAVER2;RuntimeCLI;/")
 MESSAGE(STATUS "CPACK_INSTALL_CMAKE_PROJECTS = ${CPACK_INSTALL_CMAKE_PROJECTS}") 
 
+#HACK - cannot seem to access top of superbuild from here
+get_filename_component(top_level_binary ${CMAKE_BINARY_DIR} DIRECTORY )
+
+#HACK - explicit install of tetgen and cleaver for custom apps
+if(WIN32)
+  set(mesher_bin_dir "${top_level_binary}/bin/$<CONFIG>")
+  install(
+      FILES
+        ${mesher_bin_dir}/tetgen.exe
+        ${mesher_bin_dir}/cleaver-cli.exe
+      DESTINATION bin COMPONENT Runtime)
+else()
+  set(mesher_bin_dir "${top_level_binary}/bin")
+  install(
+    FILES
+      ${mesher_bin_dir}/tetgen
+      ${mesher_bin_dir}/cleaver-cli
+    DESTINATION bin COMPONENT Runtime)
+endif()
 include(${Slicer_EXTENSION_CPACK})
