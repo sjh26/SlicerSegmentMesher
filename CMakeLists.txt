@@ -53,14 +53,14 @@ get_filename_component(top_level_binary ${CMAKE_BINARY_DIR} DIRECTORY )
 if(WIN32)
   set(mesher_bin_dir "${top_level_binary}/bin/$<CONFIG>")
   install(
-      FILES
+      PROGRAMS
         ${mesher_bin_dir}/tetgen.exe
         ${mesher_bin_dir}/cleaver-cli.exe
       DESTINATION bin COMPONENT Runtime)
 else()
   set(mesher_bin_dir "${top_level_binary}/bin")
   install(
-    FILES
+    PROGRAMS
       ${mesher_bin_dir}/tetgen
       ${mesher_bin_dir}/cleaver-cli
     DESTINATION bin COMPONENT Runtime)
