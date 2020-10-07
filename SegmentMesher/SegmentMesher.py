@@ -109,7 +109,7 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget):
     self.inputSurfaceSelector.showChildNodeTypes = False
     self.inputSurfaceSelector.setMRMLScene( slicer.mrmlScene )
     self.inputSurfaceSelector.setToolTip( "Volumetric mesh will be generated based on this surface - TetGen only." )
-    inputParametersFormLayout.addRow("Input surface (TetGen only): ", self.inputSurfaceSelector)
+    inputParametersFormLayout.addRow("Input surface: ", self.inputSurfaceSelector)
     self.inputSurfaceSelector.enabled = False
 
 
@@ -355,11 +355,13 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget):
     self.showTemporaryFilesFolderButton.connect('clicked(bool)', self.onShowTemporaryFilesFolder)
     self.inputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.updateMRMLFromGUI)
     self.outputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.updateMRMLFromGUI)
+    self.methodSelectorComboBox.connect("currentIndexChanged(int)", self.switchParameterTab)
     self.methodSelectorComboBox.connect("currentIndexChanged(int)", self.updateMRMLFromGUI)
     # Immediately update deleteTemporaryFiles in the logic to make it possible to decide to
     # keep the temporary file while the model generation is running
     self.keepTemporaryFilesCheckBox.connect("toggled(bool)", self.onKeepTemporaryFilesToggled)
     self.tetgenUseSurface.connect("toggled(bool)", self.updateMRMLFromGUI)
+    self.netgenUseSurface.connect("toggled(bool)", self.updateMRMLFromGUI)
 
     # Add vertical spacer
     self.layout.addStretch(1)
@@ -374,6 +376,17 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget):
     pass
 
    
+  def switchParameterTab(self):
+    method = self.methodSelectorComboBox.itemData(self.methodSelectorComboBox.currentIndex)
+    if method == METHOD_TETGEN:
+      self.advancedTabWidget.setCurrentWidget(self.tetgenTab)
+
+    if method == METHOD_CLEAVER:
+      self.advancedTabWidget.setCurrentWidget(self.cleaverTab)
+
+    if method == METHOD_NETGEN:
+      self.advancedTabWidget.setCurrentWidget(self.netgenTab)
+  
   def updateMRMLFromGUI(self):
     
     method = self.methodSelectorComboBox.itemData(self.methodSelectorComboBox.currentIndex)
@@ -401,14 +414,7 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget):
       for index in oldIndex:
         self.segmentSelectorCombBox.setCheckState(index, qt.Qt.Checked)
     
-    if method == METHOD_TETGEN:
-      self.advancedTabWidget.setCurrentWidget(self.tetgenTab)
-
-    if method == METHOD_CLEAVER:
-      self.advancedTabWidget.setCurrentWidget(self.cleaverTab)
-
-    if method == METHOD_NETGEN:
-      self.advancedTabWidget.setCurrentWidget(self.netgenTab)
+    
     
     enabled = True
     if useSurface:
