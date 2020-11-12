@@ -74,7 +74,8 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     self.ui.outputModelSelector.setMRMLScene( slicer.mrmlScene )
 
     self.ui.methodSelectorComboBox.addItem("Cleaver", METHOD_CLEAVER)
-    self.ui.methodSelectorComboBox.addItem("TetGen", METHOD_TETGEN)    
+    self.ui.methodSelectorComboBox.addItem("TetGen", METHOD_TETGEN) 
+    self.ui.methodSelectorComboBox.addItem("NetGen", METHOD_NETGEN)   
 
     customCleaverPath = self.logic.getCustomCleaverPath()
     self.ui.customCleaverPathSelector.setCurrentPath(customCleaverPath)
@@ -102,6 +103,7 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     # keep the temporary file while the model generation is running
     self.ui.keepTemporaryFilesCheckBox.connect("toggled(bool)", self.onKeepTemporaryFilesToggled)
     self.ui.tetgenUseSurface.connect("toggled(bool)", self.updateMRMLFromGUI)
+    self.ui.netgenUseSurface.connect("toggled(bool)", self.updateMRMLFromGUI)
 
     #Parameter node connections
     self.ui.inputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.updateParameterNodeFromGUI)
@@ -127,6 +129,12 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     self.ui.tetgenVolumeParameterWidget.connect("valueChanged(double)", self.updateParameterNodeFromGUI)
     self.ui.tetGenAdditionalParametersWidget.connect("textChanged(const QString&)", self.updateParameterNodeFromGUI)
     self.ui.customTetGenPathSelector.connect("currentPathChanged(const QString&)", self.updateParameterNodeFromGUI)
+
+    self.ui.netgenUseSurface.connect("toggled(bool)", self.updateParameterNodeFromGUI)
+    self.ui.netgenMaxGlobalSizeParameterWidget.connect("valueChanged(double)", self.updateParameterNodeFromGUI)
+    self.ui.netgenMeshDensityParameterWidget.connect("valueChanged(double)", self.updateParameterNodeFromGUI)
+    self.ui.netgenSecondOrderElementsParameterWidget.connect("toggled(bool)", self.updateParameterNodeFromGUI)
+    self.ui.netgenNumberOfOptimizeStepsParameterWidget.connect("valueChanged(int)", self.updateParameterNodeFromGUI)
 
     # Add vertical spacer
     self.layout.addStretch(1)
@@ -254,6 +262,12 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     self.ui.tetGenAdditionalParametersWidget.text = self._parameterNode.GetParameter("tetGenAdditionalParameters")
     self.ui.customTetGenPathSelector.setCurrentPath(self._parameterNode.GetParameter("customTetGenPath"))
 
+    self.ui.netgenUseSurface.checked = (self._parameterNode.GetParameter("netgenUseSurface") == "true")
+    self.ui.netgenMaxGlobalSizeParameterWidget.value = float(self._parameterNode.GetParameter("netgenMaxGlobalSizeParameter"))
+    self.ui.netgenMeshDensityParameterWidget.value = float(self._parameterNode.GetParameter("netgenMeshDensityParameter"))
+    self.ui.netgenSecondOrderElementsParameterWidget.checked = (self._parameterNode.GetParameter("netgenSecondOrderElementsParameter") == "true")
+    self.ui.netgenNumberOfOptimizeStepsParameterWidget.value = int(self._parameterNode.GetParameter("netgenNumberOfOptimizeStepsParameter"))
+
 
     # Update buttons states and tooltips
     self.updateMRMLFromGUI()
@@ -299,6 +313,13 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     self._parameterNode.SetParameter("tetGenAdditionalParameters", self.ui.tetGenAdditionalParametersWidget.text)
     self._parameterNode.SetParameter("customTetGenPath", self.ui.customTetGenPathSelector.currentPath)
 
+    #NetGen parameters
+    self._parameterNode.SetParameter("netgenUseSurface", "true" if self.ui.netgenUseSurface.checked else "false")
+    self._parameterNode.SetParameter("netgenMaxGlobalSizeParameter", str(self.ui.netgenMaxGlobalSizeParameterWidget.value))
+    self._parameterNode.SetParameter("netgenMeshDensityParameter", str(self.ui.netgenMeshDensityParameterWidget.value))
+    self._parameterNode.SetParameter("netgenSecondOrderElementsParameter", "true" if self.ui.netgenSecondOrderElementsParameterWidget.checked else "false")
+    self._parameterNode.SetParameter("netgenNumberOfOptimizeStepsParameter", str(self.ui.netgenNumberOfOptimizeStepsParameterWidget.value))
+
     self._parameterNode.EndModify(wasModified)
   
   def updateMRMLFromGUI(self):
@@ -306,9 +327,11 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     method = self.ui.methodSelectorComboBox.itemData(self.ui.methodSelectorComboBox.currentIndex)
     
     #Enable correct input selections
-    self.ui.inputSurfaceSelector.enabled = self.ui.tetgenUseSurface.isChecked() and method == METHOD_TETGEN
-    self.ui.segmentSelectorCombBox.enabled = not (self.ui.tetgenUseSurface.isChecked() and method == METHOD_TETGEN) and self.ui.inputModelSelector.currentNode() is not None
-    self.ui.inputModelSelector.enabled = not (self.ui.tetgenUseSurface.isChecked() and method == METHOD_TETGEN)
+    useSurface = (self.ui.tetgenUseSurface.isChecked() and method == METHOD_TETGEN) or (method == METHOD_NETGEN and self.ui.netgenUseSurface.isChecked())
+    useSegmentation = not useSurface
+    self.ui.inputSurfaceSelector.enabled = useSurface
+    self.ui.segmentSelectorCombBox.enabled = useSegmentation and self.ui.inputModelSelector.currentNode() is not None
+    self.ui.inputModelSelector.enabled = useSegmentation
 
     #populate segments 
     inputSeg = self.ui.inputModelSelector.currentNode()
@@ -327,16 +350,24 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.segmentSelectorCombBox.setCheckState(index, qt.Qt.Checked)
     
     if method == METHOD_TETGEN:
-      self.ui.advancedTabWidget.setTabEnabled( self.ui.advancedTabWidget.indexOf(self.ui.cleaverTab), False)
-      self.ui.advancedTabWidget.setTabEnabled( self.ui.advancedTabWidget.indexOf(self.ui.tetgenTab), True)      
+      self.ui.advancedTabWidget.setTabEnabled( self.ui.advancedTabWidget.indexOf(self.ui.netgenTab), False)
+      self.ui.advancedTabWidget.setTabEnabled( self.ui.advancedTabWidget.indexOf(self.ui.tetgenTab), True)
+      self.ui.advancedTabWidget.setTabEnabled( self.ui.advancedTabWidget.indexOf(self.ui.cleaverTab), False)       
+      self.ui.advancedTabWidget.setStyleSheet("QTabBar::tab::disabled {width: 0; height: 0; margin: 0; padding: 0; border: none;} ")
+
+    if method == METHOD_NETGEN:
+      self.ui.advancedTabWidget.setTabEnabled( self.ui.advancedTabWidget.indexOf(self.ui.netgenTab), True)
+      self.ui.advancedTabWidget.setTabEnabled( self.ui.advancedTabWidget.indexOf(self.ui.tetgenTab), False)
+      self.ui.advancedTabWidget.setTabEnabled( self.ui.advancedTabWidget.indexOf(self.ui.cleaverTab), False)      
       self.ui.advancedTabWidget.setStyleSheet("QTabBar::tab::disabled {width: 0; height: 0; margin: 0; padding: 0; border: none;} ")
 
     if method == METHOD_CLEAVER:
+      self.ui.advancedTabWidget.setTabEnabled( self.ui.advancedTabWidget.indexOf(self.ui.netgenTab), False)
       self.ui.advancedTabWidget.setTabEnabled( self.ui.advancedTabWidget.indexOf(self.ui.tetgenTab), False)
-      self.ui.advancedTabWidget.setTabEnabled( self.ui.advancedTabWidget.indexOf(self.ui.cleaverTab), True)
+      self.ui.advancedTabWidget.setTabEnabled( self.ui.advancedTabWidget.indexOf(self.ui.cleaverTab), True) 
       self.ui.advancedTabWidget.setStyleSheet("QTabBar::tab::disabled {width: 0; height: 0; margin: 0; padding: 0; border: none;} ")
     
-    if method == METHOD_TETGEN and self.ui.tetgenUseSurface.isChecked():
+    if useSurface:
       if not self.ui.inputSurfaceSelector.currentNode():
         self.ui.applyButton.text = "Select input surface"
         self.ui.applyButton.enabled = False
@@ -414,6 +445,16 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
           self.ui.outputModelSelector.currentNode(), segments, self.ui.cleaverAdditionalParametersWidget.text,
           self.ui.cleaverRemoveBackgroundMeshCheckBox.isChecked(),
           self.ui.cleaverPaddingPercentSpinBox.value * 0.01, self.ui.cleaverFeatureScalingParameterWidget.value, self.ui.cleaverSamplingParameterWidget.value, self.ui.cleaverRateParameterWidget.value)
+      elif method == METHOD_NETGEN:
+        if self.ui.netgenUseSurface.isChecked():
+          if self.ui.inputSurfaceSelector.currentNode().GetUnstructuredGrid() is not None:
+              self.addLog("Error: Mesh must be a surface, not volumetric")
+              return
+          self.logic.createMeshFromPolyDataNetGen(self.ui.inputSurfaceSelector.currentNode(), self.ui.outputModelSelector.currentNode(), self.ui.netgenMaxGlobalSizeParameterWidget.value, 
+            self.ui.netgenMeshDensityParameterWidget.value, self.ui.netgenSecondOrderElementsParameterWidget.isChecked(), self.ui.netgenNumberOfOptimizeStepsParameterWidget.value)
+        else:
+          self.logic.createMeshFromSegmentationNetGen(self.ui.inputModelSelector.currentNode(), self.ui.outputModelSelector.currentNode(), segments, self.ui.netgenMaxGlobalSizeParameterWidget.value, 
+            self.ui.netgenMeshDensityParameterWidget.value, self.ui.netgenSecondOrderElementsParameterWidget.isChecked(), self.ui.netgenNumberOfOptimizeStepsParameterWidget.value)
       else:
         if self.ui.tetgenUseSurface.isChecked():
           if self.ui.inputSurfaceSelector.currentNode().GetUnstructuredGrid() is not None:
@@ -426,7 +467,6 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
           self.logic.createMeshFromSegmentationTetGen(self.ui.inputModelSelector.currentNode(),
             self.ui.outputModelSelector.currentNode(), segments, self.ui.tetGenAdditionalParametersWidget.text,
             self.ui.tetgenRatioParameterWidget.value, self.ui.tetgenAngleParameterWidget.value, self.ui.tetgenVolumeParameterWidget.value)
-
     except Exception as e:
       print(e)
       self.addLog("Error: {0}".format(str(e)))
@@ -437,6 +477,7 @@ class SegmentMesherWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
       self.modelGenerationInProgress = False
       self.updateMRMLFromGUI() # restores default Apply button state
 
+    
   def addLog(self, text):
     """Append text to log window
     """
@@ -507,6 +548,12 @@ class SegmentMesherLogic(ScriptedLoadableModuleLogic):
     self.setParameterIfNotDefined(parameterNode, "tetgenVolumeParameter", "5")
     self.setParameterIfNotDefined(parameterNode, "tetGenAdditionalParameters", "")
     self.setParameterIfNotDefined(parameterNode, "customTetGenPath", "")
+
+    self.setParameterIfNotDefined(parameterNode, "netgenUseSurface", "false")
+    self.setParameterIfNotDefined(parameterNode, "netgenMaxGlobalSizeParameter", "1000000")
+    self.setParameterIfNotDefined(parameterNode, "netgenMeshDensityParameter", "0.5")
+    self.setParameterIfNotDefined(parameterNode, "netgenSecondOrderElementsParameter", "false")
+    self.setParameterIfNotDefined(parameterNode, "netgenNumberOfOptimizeStepsParameter", "3")
     
   
   def setParameterIfNotDefined(self, parameterNode, key, value):
@@ -605,6 +652,23 @@ class SegmentMesherLogic(ScriptedLoadableModuleLogic):
     return subprocess.Popen([executableFilePath] + cmdLineArguments,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, startupinfo=info)
 
+  def logProcessOutputCLI(self, CLI):
+    # save process output (if not logged) so that it can be displayed in case of an error
+    processOutput = ''
+    if self.logStandardOutput:
+        self.addLog(CLI.GetOutputText())
+        self.addLog(CLI.GetErrorText())
+    else:
+      processOutput += CLI.GetOutputText()
+      processOutput += CLI.GetErrorText()
+    
+    if CLI.GetStatus() ==slicer.vtkMRMLCommandLineModuleNode().CompletedWithErrors:
+      if self.abortRequested:
+        raise ValueError("User requested cancel.")
+      else:
+        if processOutput:
+          self.addLog(processOutput)
+  
   def logProcessOutput(self, process, processName):
     # save process output (if not logged) so that it can be displayed in case of an error
     processOutput = ''
@@ -812,6 +876,79 @@ class SegmentMesherLogic(ScriptedLoadableModuleLogic):
 
     self.addLog("Model generation is completed")
 
+  def createMeshFromSegmentationNetGen(self, inputSegmentation, outputMeshNode, segments = [],maxGlobalMeshSize=1e6, meshDensity=0.5, useSecondOrder=False, numOptimizeSteps=3):
+    segmentIdList = vtk.vtkStringArray()    
+    for segment in segments:
+      segmentIdList.InsertNextValue(segment)
+
+    if segmentIdList.GetNumberOfValues() == 0:
+      logging.info("createMeshFromSegmentationTetGen skipped: there are no selected segments")
+      return
+    inputSegmentation.CreateClosedSurfaceRepresentation()
+    appender = vtk.vtkAppendPolyData()
+    for i in range(segmentIdList.GetNumberOfValues()):
+      segmentId = segmentIdList.GetValue(i)
+
+      #Use old function arguments for 4.10 
+      if slicer.app.majorVersion == 4 and slicer.app.minorVersion < 11:
+      	polydata = inputSegmentation.GetClosedSurfaceRepresentation(segmentId)      	      	
+      else:
+      	polydata = vtk.vtkPolyData()
+      	inputSegmentation.GetClosedSurfaceRepresentation(segmentId, polydata)
+      appender.AddInputData(polydata)
+
+    appender.Update()
+    #create temp model node for CLI
+    tempModel = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLModelNode')
+    tempModel.SetAndObservePolyData(appender.GetOutput())
+    self.createMeshFromPolyDataNetGen(tempModel, outputMeshNode, maxGlobalMeshSize, meshDensity, useSecondOrder, numOptimizeSteps)
+
+    #Clean up representation
+    slicer.mrmlScene.RemoveNode(tempModel)
+    inputSegmentation.GetSegmentation().RemoveRepresentation(slicer.vtkSegmentationConverter().GetClosedSurfaceRepresentationName())
+  
+  def createMeshFromPolyDataNetGen(self, inputMeshNode, outputMeshNode, maxGlobalMeshSize=1e6, meshDensity=0.5, useSecondOrder=False, numOptimizeSteps=3):
+
+    self.abortRequested = False
+    tempDir = self.createTempDirectory()
+    self.addLog('NetGen Mesh generation is started in working directory: '+tempDir)
+   
+
+    # Run NetGen CLI
+    parameters = {}
+    parameters["inputModel"] = inputMeshNode.GetID()
+    parameters["maxGlobalMeshSize"] = maxGlobalMeshSize
+    parameters["meshDensity"] = meshDensity
+    parameters["useSecondOrder"] = useSecondOrder
+    parameters["numOptimizeSteps"] = numOptimizeSteps
+    parameters["outputModel"] =  os.path.join(tempDir, "mesh.vtk")
+    netgenmesher = slicer.modules.netgenmesher
+    cliNode = slicer.cli.runSync(netgenmesher, None, parameters)
+
+    self.logProcessOutputCLI(cliNode)
+
+    # Read results
+    if not self.abortRequested:
+      outputVolumetricMeshPath = os.path.join(tempDir, "mesh.vtk")
+      outputReader = slicer.vtkMRMLModelStorageNode()
+      outputReader.SetFileName(outputVolumetricMeshPath)
+      outputReader.ReadData(outputMeshNode)
+
+      outputMeshDisplayNode = outputMeshNode.GetDisplayNode()
+      if not outputMeshDisplayNode:
+        # Initial setup of display node
+        outputMeshNode.CreateDefaultDisplayNodes()
+        outputMeshDisplayNode = outputMeshNode.GetDisplayNode()
+        outputMeshDisplayNode.SetEdgeVisibility(True)
+        outputMeshDisplayNode.SetClipping(True)
+
+    # Clean up
+    if self.deleteTemporaryFiles:
+      import shutil
+      shutil.rmtree(tempDir)
+
+    self.addLog("Model generation is completed")
+  
   def createMeshFromSegmentationTetGen(self, inputSegmentation, outputMeshNode, segments = [], additionalParameters="", ratio=5, angle=0, volume=10):
     
     segmentIdList = vtk.vtkStringArray()    
@@ -958,3 +1095,4 @@ class SegmentMesherTest(ScriptedLoadableModuleTest):
 
 METHOD_CLEAVER = 'CLEAVER'
 METHOD_TETGEN = 'TETGEN'
+METHOD_NETGEN = 'NETGEN'
